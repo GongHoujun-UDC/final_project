@@ -1,0 +1,10 @@
+[package]
+name = "final_project"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+ndarray = "0.15"
+ndarray-stats = "0.6"
+csv = "1.1"
+rand = "0.8"
