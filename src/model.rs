@@ -1,59 +1,89 @@
-use ndarray::{Array2, Axis};
-use rand::Rng;
+use rand::seq::SliceRandom;
 
-pub fn train_multitask_linear_regression(
-    x: &Array2<f64>,
-    y: &Array2<f64>,
-    learning_rate: f64,
-    epochs: usize,
-    l2_penalty: f64,
-    gradient_clip: f64,
-    verbose: bool,
-) -> Array2<f64> {
-    let mut rng = rand::thread_rng();
-    let mut weights = Array2::from_shape_fn((x.shape()[1], y.shape()[1]), |_| rng.gen_range(-0.1..0.1));
+pub struct LinearRegression {
+    weights: Vec<f64>,
+    bias: f64,
+}
 
-    for epoch in 0..epochs {
-        // Prediction: y_hat = X * weights
-        let predictions = x.dot(&weights);
-
-        // Error: y_hat - y
-        let errors = &predictions - y;
-
-        // Gradient Descent with L2 Regularization
-        let gradients = x.t().dot(&errors) / x.shape()[0] as f64 + l2_penalty * &weights;
-
-        // Gradient Clipping
-        let clipped_gradients = gradients.mapv(|v| v.min(gradient_clip).max(-gradient_clip));
-        weights = weights - clipped_gradients * learning_rate;
-
-        if verbose && epoch % 100 == 0 {
-            let mse = (&predictions - y)
-                .mapv(|v| v * v)
-                .mean_axis(Axis(0))
-                .unwrap();
-            println!("Epoch {}: MSE = {:?}", epoch, mse);
+impl LinearRegression {
+    pub fn new(n_features: usize) -> Self {
+        Self {
+            weights: vec![0.0; n_features],
+            bias: 0.0,
         }
     }
 
-    weights
+    pub fn train_with_momentum(&mut self, x: &Vec<Vec<f64>>, y: &Vec<f64>, lr: f64, epochs: usize, momentum: f64) {
+        let mut velocity = vec![0.0; self.weights.len()];
+        for _ in 0..epochs {
+            let predictions = self.predict(x);
+            let errors: Vec<f64> = predictions.iter().zip(y.iter()).map(|(&p, &t)| p - t).collect();
+
+            for j in 0..self.weights.len() {
+                let gradient = errors.iter().zip(x.iter()).map(|(&e, row)| e * row[j]).sum::<f64>() / x.len() as f64;
+                velocity[j] = momentum * velocity[j] - lr * gradient;
+                self.weights[j] += velocity[j];
+            }
+            self.bias -= lr * errors.iter().sum::<f64>() / x.len() as f64;
+        }
+    }
+
+    pub fn predict(&self, x: &Vec<Vec<f64>>) -> Vec<f64> {
+        x.iter().map(|row| {
+            row.iter().zip(self.weights.iter()).map(|(&xi, &wj)| xi * wj).sum::<f64>() + self.bias
+        }).collect()
+    }
 }
 
-pub fn predict(x: &Array2<f64>, weights: &Array2<f64>) -> Array2<f64> {
-    x.dot(weights)
+pub struct LogisticRegression {
+    weights: Vec<f64>,
+    bias: f64,
 }
 
-pub fn evaluate(y_true: &Array2<f64>, y_pred: &Array2<f64>) {
-    let mse = (y_true - y_pred)
-        .mapv(|v| v * v)
-        .mean_axis(Axis(0))
-        .unwrap();
-    let mae = (y_true - y_pred)
-        .mapv(|v| v.abs())
-        .mean_axis(Axis(0))
-        .unwrap();
+impl LogisticRegression {
+    pub fn new(n_features: usize) -> Self {
+        Self {
+            weights: vec![0.0; n_features],
+            bias: 0.0,
+        }
+    }
+}
 
-    println!("Evaluation Metrics:");
-    println!("MSE: {:?}", mse);
-    println!("MAE: {:?}", mae);
+pub fn mean_squared_error(predictions: &Vec<f64>, targets: &Vec<f64>) -> f64 {
+    predictions.iter().zip(targets.iter()).map(|(&p, &t)| (p - t).powi(2)).sum::<f64>() / predictions.len() as f64
+}
+
+pub fn accuracy(predictions: &Vec<f64>, targets: &Vec<f64>) -> f64 {
+    let correct = predictions.iter().zip(targets.iter())
+        .filter(|(&p, &t)| (p >= 0.5 && t == 1.0) || (p < 0.5 && t == 0.0)).count();
+    correct as f64 / predictions.len() as f64
+}
+
+pub fn k_fold_cross_validation(features: &Vec<Vec<f64>>, targets: &Vec<f64>, k: usize) -> f64 {
+    let mut combined: Vec<(Vec<f64>, f64)> = features.iter().cloned().zip(targets.iter().cloned()).collect();
+    let mut rng = rand::thread_rng();
+    combined.shuffle(&mut rng);
+
+    let fold_size = features.len() / k;
+    let mut mse_sum = 0.0;
+
+    for i in 0..k {
+        let test_start = i * fold_size;
+        let test_end = test_start + fold_size;
+        let test_set: Vec<_> = combined[test_start..test_end].to_vec();
+        let train_set: Vec<_> = [&combined[..test_start], &combined[test_end..]].concat();
+
+        let train_features: Vec<_> = train_set.iter().map(|(x, _)| x.clone()).collect();
+        let train_targets: Vec<_> = train_set.iter().map(|(_, y)| *y).collect();
+        let test_features: Vec<_> = test_set.iter().map(|(x, _)| x.clone()).collect();
+        let test_targets: Vec<_> = test_set.iter().map(|(_, y)| *y).collect();
+
+        let mut model = LinearRegression::new(train_features[0].len());
+        model.train_with_momentum(&train_features, &train_targets, 0.01, 1000, 0.9);
+
+        let predictions = model.predict(&test_features);
+        mse_sum += mean_squared_error(&predictions, &test_targets);
+    }
+
+    mse_sum / k as f64
 }

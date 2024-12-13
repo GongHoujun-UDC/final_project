@@ -1,41 +1,56 @@
-mod utils;
-mod model;
 mod data;
+mod model;
 
-use data::load_data;
-use model::{train_multitask_linear_regression, predict, evaluate};
+use crate::data::{parse_csv, normalize, split_data, select_features, generate_polynomial_features};
+use crate::model::{LinearRegression, LogisticRegression, mean_squared_error, accuracy, k_fold_cross_validation};
+use std::fs::File;
+use std::io::{BufReader, BufRead};
 
 fn main() {
-    let file_path = "games.csv"; // Replace with the actual file path
-    let (features, targets) = load_data(file_path);
+    // Load dataset from a CSV file
+    let file_path = "winequality-white.csv"; // Update this path based on your CSV location
+    let dataset = read_csv(file_path).expect("Failed to read the CSV file!");
 
-    // Split data into training and testing sets (80/20 split)
-    let train_size = (0.8 * features.shape()[0] as f64) as usize;
-    let (x_train, x_test) = features.view().split_at(ndarray::Axis(0), train_size);
-    let (y_train, y_test) = targets.view().split_at(ndarray::Axis(0), train_size);
+    // Parse dataset into features and targets
+    let (features, targets) = parse_csv(&dataset);
 
-    // Train the model
-    let learning_rate = 0.01;
-    let epochs = 2000;
-    let l2_penalty = 0.1;
-    let gradient_clip = 1.0;
-    let verbose = true;
-    let weights = train_multitask_linear_regression(
-        &x_train.to_owned(),
-        &y_train.to_owned(),
-        learning_rate,
-        epochs,
-        l2_penalty,
-        gradient_clip,
-        verbose,
-    );
+    // Feature Engineering
+    let features = generate_polynomial_features(&features, 2); // Add polynomial features up to degree 2
+    let selected_features = select_features(&features, &targets, 0.1); // Select features with correlation > 0.1
 
-    // Make predictions
-    let predictions = predict(&x_test.to_owned(), &weights);
+    // Normalize features
+    let normalized_features = normalize(&selected_features);
 
-    // Evaluate the model
-    evaluate(&y_test.to_owned(), &predictions);
+    // Split into training and testing
+    let (train_x, train_y, test_x, test_y) = split_data(&normalized_features, &targets, 0.8);
 
-    // Print model weights
-    println!("Final model weights: {:?}", weights);
+    // Linear Regression with momentum
+    let mut lin_reg = LinearRegression::new(train_x[0].len());
+    lin_reg.train_with_momentum(&train_x, &train_y, 0.01, 1000, 0.9);
+    let predictions = lin_reg.predict(&test_x);
+    println!("Linear Regression MSE: {}", mean_squared_error(&predictions, &test_y));
+
+    // Logistic Regression with learning rate scheduler
+    let binary_targets: Vec<f64> = targets.iter().map(|&y| if y > 5.0 { 1.0 } else { 0.0 }).collect();
+    let (train_x_bin, train_y_bin, test_x_bin, test_y_bin) = split_data(&normalized_features, &binary_targets, 0.8);
+    let mut log_reg = LogisticRegression::new(train_x_bin[0].len());
+    log_reg.train_with_scheduler(&train_x_bin, &train_y_bin, 0.01, 1000, 0.95);
+    let predictions_bin = log_reg.predict(&test_x_bin);
+    println!("Logistic Regression Accuracy: {}", accuracy(&predictions_bin, &test_y_bin));
+
+    // Run K-Fold Cross Validation
+    println!("Running K-Fold Cross Validation...");
+    let cv_mse = k_fold_cross_validation(&normalized_features, &targets, 5);
+    println!("Cross-Validation Mean MSE: {}", cv_mse);
+}
+
+/// Reads the CSV file and returns its content as a vector of strings
+fn read_csv(file_path: &str) -> Result<Vec<String>, std::io::Error> {
+    let file = File::open(file_path)?;
+    let reader = BufReader::new(file);
+    let mut lines = Vec::new();
+    for line in reader.lines() {
+        lines.push(line?);
+    }
+    Ok(lines)
 }
