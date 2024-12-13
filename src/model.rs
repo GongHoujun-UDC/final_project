@@ -5,6 +5,12 @@ pub struct LinearRegression {
     bias: f64,
 }
 
+pub struct LogisticRegression {
+    weights: Vec<f64>,
+    bias: f64,
+}
+
+// Linear Regression Implementation
 impl LinearRegression {
     pub fn new(n_features: usize) -> Self {
         Self {
@@ -13,7 +19,14 @@ impl LinearRegression {
         }
     }
 
-    pub fn train_with_momentum(&mut self, x: &Vec<Vec<f64>>, y: &Vec<f64>, lr: f64, epochs: usize, momentum: f64) {
+    pub fn train_with_momentum(
+        &mut self,
+        x: &Vec<Vec<f64>>,
+        y: &Vec<f64>,
+        lr: f64,
+        epochs: usize,
+        momentum: f64,
+    ) {
         let mut velocity = vec![0.0; self.weights.len()];
         for _ in 0..epochs {
             let predictions = self.predict(x);
@@ -29,17 +42,15 @@ impl LinearRegression {
     }
 
     pub fn predict(&self, x: &Vec<Vec<f64>>) -> Vec<f64> {
-        x.iter().map(|row| {
-            row.iter().zip(self.weights.iter()).map(|(&xi, &wj)| xi * wj).sum::<f64>() + self.bias
-        }).collect()
+        x.iter()
+            .map(|row| {
+                row.iter().zip(self.weights.iter()).map(|(&xi, &wj)| xi * wj).sum::<f64>() + self.bias
+            })
+            .collect()
     }
 }
 
-pub struct LogisticRegression {
-    weights: Vec<f64>,
-    bias: f64,
-}
-
+// Logistic Regression Implementation
 impl LogisticRegression {
     pub fn new(n_features: usize) -> Self {
         Self {
@@ -47,8 +58,54 @@ impl LogisticRegression {
             bias: 0.0,
         }
     }
+
+    pub fn train_with_scheduler(
+        &mut self,
+        x: &Vec<Vec<f64>>,
+        y: &Vec<f64>,
+        initial_lr: f64,
+        epochs: usize,
+        decay_rate: f64,
+    ) {
+        let mut lr = initial_lr;
+
+        for epoch in 0..epochs {
+            let predictions = self.predict(x);
+            let errors: Vec<f64> = predictions.iter().zip(y.iter()).map(|(&p, &t)| p - t).collect();
+
+            for j in 0..self.weights.len() {
+                let gradient = errors.iter().zip(x.iter()).map(|(&e, row)| e * row[j]).sum::<f64>() / x.len() as f64;
+                self.weights[j] -= lr * gradient;
+            }
+            self.bias -= lr * errors.iter().sum::<f64>() / x.len() as f64;
+
+            // Update learning rate
+            lr *= decay_rate;
+
+            // Optional: Print loss every 100 epochs
+            if epoch % 100 == 0 {
+                let loss = -y
+                    .iter()
+                    .zip(predictions.iter())
+                    .map(|(&t, &p)| t * p.ln() + (1.0 - t) * (1.0 - p).ln())
+                    .sum::<f64>()
+                    / y.len() as f64;
+                println!("Epoch {}: Loss = {:.6}", epoch, loss);
+            }
+        }
+    }
+
+    pub fn predict(&self, x: &Vec<Vec<f64>>) -> Vec<f64> {
+        x.iter()
+            .map(|row| {
+                let linear = row.iter().zip(self.weights.iter()).map(|(&xi, &wj)| xi * wj).sum::<f64>() + self.bias;
+                1.0 / (1.0 + (-linear).exp())
+            })
+            .collect()
+    }
 }
 
+// Evaluation Metrics
 pub fn mean_squared_error(predictions: &Vec<f64>, targets: &Vec<f64>) -> f64 {
     predictions.iter().zip(targets.iter()).map(|(&p, &t)| (p - t).powi(2)).sum::<f64>() / predictions.len() as f64
 }
@@ -59,6 +116,7 @@ pub fn accuracy(predictions: &Vec<f64>, targets: &Vec<f64>) -> f64 {
     correct as f64 / predictions.len() as f64
 }
 
+// K-Fold Cross Validation
 pub fn k_fold_cross_validation(features: &Vec<Vec<f64>>, targets: &Vec<f64>, k: usize) -> f64 {
     let mut combined: Vec<(Vec<f64>, f64)> = features.iter().cloned().zip(targets.iter().cloned()).collect();
     let mut rng = rand::thread_rng();

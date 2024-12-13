@@ -24,13 +24,13 @@ fn main() {
     // Split into training and testing
     let (train_x, train_y, test_x, test_y) = split_data(&normalized_features, &targets, 0.8);
 
-    // Linear Regression with momentum
+    // Linear Regression
     let mut lin_reg = LinearRegression::new(train_x[0].len());
     lin_reg.train_with_momentum(&train_x, &train_y, 0.01, 1000, 0.9);
     let predictions = lin_reg.predict(&test_x);
     println!("Linear Regression MSE: {}", mean_squared_error(&predictions, &test_y));
 
-    // Logistic Regression with learning rate scheduler
+    // Logistic Regression
     let binary_targets: Vec<f64> = targets.iter().map(|&y| if y > 5.0 { 1.0 } else { 0.0 }).collect();
     let (train_x_bin, train_y_bin, test_x_bin, test_y_bin) = split_data(&normalized_features, &binary_targets, 0.8);
     let mut log_reg = LogisticRegression::new(train_x_bin[0].len());
@@ -38,7 +38,7 @@ fn main() {
     let predictions_bin = log_reg.predict(&test_x_bin);
     println!("Logistic Regression Accuracy: {}", accuracy(&predictions_bin, &test_y_bin));
 
-    // Run K-Fold Cross Validation
+    // K-Fold Cross Validation
     println!("Running K-Fold Cross Validation...");
     let cv_mse = k_fold_cross_validation(&normalized_features, &targets, 5);
     println!("Cross-Validation Mean MSE: {}", cv_mse);
